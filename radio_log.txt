@@ -113,3 +113,19 @@ Transferring:
  * yammat_test_recording_2025-02-23_17-42-11.mp3:100% /353.479Ki, 353.455Ki/s, 0Transferred:   	  353.479 KiB / 353.479 KiB, 100%, 353.479 KiB/s, ETA 0s
 Transferred:            1 / 1, 100%
 Elapsed time:         1.5s
+Starting recording, saving to yammat_recording_2025-02-23_17-56-45.mp3...
+Traceback (most recent call last):
+  File "/home/ssmurf/PythonProjects/Radio-show-recorder/recorder.py", line 118, in <module>
+    schedule.every().day.at("18:00").do(record_radio_show(1800))
+                                        ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ssmurf/PythonProjects/Radio-show-recorder/recorder.py", line 30, in record_radio_show
+    subprocess.run(command, check=True)
+  File "/usr/lib/python3.11/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1024, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.11/subprocess.py", line 1834, in _execute_child
+    self.pid = _fork_exec(
+               ^^^^^^^^^^^
+TypeError: expected str, bytes or os.PathLike object, not int
