@@ -24,7 +24,8 @@ def record_radio_show():
         "ffmpeg",
         "-i", STREAM_URL,
         "-t", RECORD_DURATION,
-        "-c", "copy",
+        "-c:a", "libmp3lame",
+        "-b:a", "192k",
         output_file
     ]
     
@@ -88,14 +89,16 @@ def test_record_radio_show():
         print("An error occurred during test recording or upload:", e)
 
 # Schedule recording every Friday at 20:55.
-# schedule.every().friday.at("20:55").do(record_radio_show)
+schedule.every().friday.at("20:55").do(record_radio_show)
 
 # Schedule test recording every minute
-schedule.every(1).minutes.do(test_record_radio_show)
+# schedule.every(1).minutes.do(test_record_radio_show)
+#schedule every sunday at 13 26
+# schedule.every().sunday.at("13:28").do(record_radio_show)
 
 print("Radio recording scheduler is running...")
 
-test_record_radio_show()
+# test_record_radio_show()
 
 while True:
     schedule.run_pending()
