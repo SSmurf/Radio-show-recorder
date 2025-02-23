@@ -11,7 +11,7 @@ RECORD_DURATION_TEST = "15" # 15 seconds
 
 RCLONE_REMOTE = "gdrive:Radio recordings"
 
-def record_radio_show():
+def record_radio_show(duration=RECORD_DURATION):
     now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     output_file = f"yammat_recording_{now}.mp3"
     print(f"Starting recording, saving to {output_file}...")
@@ -20,7 +20,7 @@ def record_radio_show():
     command = [
         "ffmpeg",
         "-i", STREAM_URL,
-        "-t", RECORD_DURATION,
+        "-t", duration,
         "-c:a", "libmp3lame",
         "-b:a", "192k",
         output_file
@@ -48,7 +48,7 @@ def record_radio_show():
     except subprocess.CalledProcessError as e:
         print("An error occurred during recording or upload:", e)
 
-def test_record_radio_show():
+def test_record_radio_show(duration=RECORD_DURATION_TEST):
     now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     output_file = f"yammat_test_recording_{now}.mp3"
     print(f"Starting test recording, saving to {output_file}...")
@@ -57,7 +57,7 @@ def test_record_radio_show():
     command = [
         "ffmpeg",
         "-i", STREAM_URL,
-        "-t", RECORD_DURATION_TEST,
+        "-t", duration,
         "-c:a", "libmp3lame",
         "-b:a", "192k",
         output_file
@@ -114,6 +114,10 @@ schedule.every().friday.at("20:55").do(record_radio_show)
 # schedule.every(5).minutes.do(test_record_radio_show)
 #schedule every sunday at 13 26
 # schedule.every().sunday.at("13:28").do(record_radio_show)
+#schedule for every day at 18:00 and every sunday at 19:00 each for 30 minutes
+schedule.every().day.at("18:00").do(record_radio_show(1800))
+schedule.every().sunday.at("19:00").do(record_radio_show(1800))
+
 
 print("Radio recording scheduler is running...")
 
