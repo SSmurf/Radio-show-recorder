@@ -117,7 +117,8 @@ schedule.every().friday.at("20:55").do(record_radio_show)
 
 print("Radio recording scheduler is running...")
 
-# test_record_radio_show()
+time.sleep(60)
+test_record_radio_show()
 
 
 while True:
