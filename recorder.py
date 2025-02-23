@@ -104,6 +104,12 @@ def upload_test_file():
     elapsed_time = end_time - start_time
     print(f"Elapsed time: {elapsed_time:.2f} seconds")
 
+
+print("Radio recording scheduler is running...")
+
+time.sleep(60)
+test_record_radio_show()
+
 # upload_test_file()
 
 
@@ -115,14 +121,11 @@ schedule.every().friday.at("20:55").do(record_radio_show)
 #schedule every sunday at 13 26
 # schedule.every().sunday.at("13:28").do(record_radio_show)
 #schedule for every day at 18:00 and every sunday at 19:00 each for 30 minutes
-schedule.every().day.at("18:07").do(record_radio_show("1800"))
-schedule.every().sunday.at("19:00").do(record_radio_show("1800"))
+schedule.every().day.at("21:00").do(record_radio_show("1800"))
+# schedule.every().sunday.at("19:00").do(record_radio_show("1800"))
 
 
-print("Radio recording scheduler is running...")
 
-time.sleep(60)
-test_record_radio_show()
 
 
 while True:
