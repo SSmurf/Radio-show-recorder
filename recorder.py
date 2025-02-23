@@ -4,14 +4,11 @@ import time
 from datetime import datetime
 import os
 
-# Replace with your actual direct stream URL
 STREAM_URL = "https://stream.yammat.fm/radio/8000/yammat.mp3"
 
-# Seconds to record: 8 hours = 28800 seconds
-RECORD_DURATION = "28800"
-RECORD_DURATION_TEST = "15"
+RECORD_DURATION = "28800" # 8 hours
+RECORD_DURATION_TEST = "15" # 15 seconds
 
-# Name of your rclone remote and folder in Google Drive
 RCLONE_REMOTE = "gdrive:Radio recordings"
 
 def record_radio_show():
@@ -46,8 +43,8 @@ def record_radio_show():
         print("Upload finished successfully.")
         
         # Optionally remove the local file after successful upload
-        os.remove(output_file)
-        print("Local file removed.")
+        # os.remove(output_file)
+        # print("Local file removed.")
     except subprocess.CalledProcessError as e:
         print("An error occurred during recording or upload:", e)
 
