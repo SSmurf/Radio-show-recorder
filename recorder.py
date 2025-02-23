@@ -85,17 +85,40 @@ def test_record_radio_show():
     except subprocess.CalledProcessError as e:
         print("An error occurred during test recording or upload:", e)
 
+def upload_test_file():
+    test_file = "test.mp3"
+    rclone_command = [
+        "rclone",
+        "copy",
+        test_file,
+        "gdrive:Radio recordings",
+        "--progress"
+    ]
+
+    start_time = time.time()
+    print("Uploading test file to Google Drive...")
+    subprocess.run(rclone_command, check=True)
+    end_time = time.time()
+    print("Upload finished successfully.")
+
+    elapsed_time = end_time - start_time
+    print(f"Elapsed time: {elapsed_time:.2f} seconds")
+
+# upload_test_file()
+
+
 # Schedule recording every Friday at 20:55.
 schedule.every().friday.at("20:55").do(record_radio_show)
 
 # Schedule test recording every minute
-# schedule.every(1).minutes.do(test_record_radio_show)
+# schedule.every(5).minutes.do(test_record_radio_show)
 #schedule every sunday at 13 26
 # schedule.every().sunday.at("13:28").do(record_radio_show)
 
 print("Radio recording scheduler is running...")
 
 # test_record_radio_show()
+
 
 while True:
     schedule.run_pending()
