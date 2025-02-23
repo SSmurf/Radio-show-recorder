@@ -114,14 +114,14 @@ test_record_radio_show()
 
 
 # Schedule recording every Friday at 20:55.
-schedule.every().friday.at("20:55").do(record_radio_show)
+schedule.every().friday.at("20:55").do(lambda: record_radio_show())
 
 # Schedule test recording every minute
 # schedule.every(5).minutes.do(test_record_radio_show)
 #schedule every sunday at 13 26
 # schedule.every().sunday.at("13:28").do(record_radio_show)
 #schedule for every day at 18:00 and every sunday at 19:00 each for 30 minutes
-schedule.every().day.at("21:00").do(record_radio_show("1800"))
+schedule.every().day.at("21:17").do(lambda: record_radio_show("1800"))
 # schedule.every().sunday.at("19:00").do(record_radio_show("1800"))
 
 
