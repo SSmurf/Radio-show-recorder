@@ -9,7 +9,7 @@ STREAM_URL = "https://stream.yammat.fm/radio/8000/yammat.mp3"
 RECORD_DURATION = "28800" # 8 hours
 RECORD_DURATION_TEST = "15" # 15 seconds
 
-RCLONE_REMOTE = "gdrive:Radio recordings"
+RCLONE_REMOTE = "gdriveIvica:Radio recordings"
 
 def record_radio_show(duration=RECORD_DURATION):
     now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -106,7 +106,7 @@ def upload_test_file():
 
 
 print("Radio recording scheduler is running...")
-
+# test_record_radio_show()
 time.sleep(60)
 test_record_radio_show()
 
@@ -121,7 +121,7 @@ schedule.every().friday.at("20:55").do(lambda: record_radio_show())
 #schedule every sunday at 13 26
 # schedule.every().sunday.at("13:28").do(record_radio_show)
 #schedule for every day at 18:00 and every sunday at 19:00 each for 30 minutes
-schedule.every().day.at("21:17").do(lambda: record_radio_show("1800"))
+# schedule.every().day.at("21:17").do(lambda: record_radio_show("1800"))
 # schedule.every().sunday.at("19:00").do(record_radio_show("1800"))
 
 
