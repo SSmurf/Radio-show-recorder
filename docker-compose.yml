@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  radio-recorder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: radio-recorder
+    restart: unless-stopped
+    
+    # Environment variables from .env file
+    env_file:
+      - .env
+    
+    # Timezone configuration
+    environment:
+      - TZ=${TZ:-Europe/Zagreb}
+    
+    volumes:
+      # Persist recordings temporarily before upload
+      - ./recordings:/app/recordings
+      
+      # Persist user configuration (schedules, settings)
+      - ./data:/app/data
+      
+      # Mount rclone configuration (read-only)
+      - ${RCLONE_CONFIG_PATH:-~/.config/rclone/rclone.conf}:/home/recorder/.config/rclone/rclone.conf:ro
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Resource limits (optional, adjust as needed)
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    
+    # Network mode - use host network for simpler setup
+    # Change to bridge if you need network isolation
+    network_mode: bridge
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    
+    # Read-only root filesystem with specific writable paths
+    read_only: true
+    tmpfs:
+      - /tmp
