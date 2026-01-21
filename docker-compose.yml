@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   radio-recorder:
     build:
@@ -7,6 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: radio-recorder
     restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
     
     # Environment variables from .env file
     env_file:
