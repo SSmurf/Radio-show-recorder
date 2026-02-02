@@ -17,7 +17,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.job import Job
 
 from .config import get_config, Schedule
-from .recorder import get_recorder, RecordingResult
+from .recorder import get_recorder, RecordingSessionResult
 from .uploader import get_uploader
 
 logger = logging.getLogger(__name__)
@@ -61,20 +61,20 @@ class RecordingScheduler:
         """Initialize the scheduler with configuration."""
         self.config = get_config()
         self.scheduler: Optional[AsyncIOScheduler] = None
-        self._recording_callback: Optional[Callable[[RecordingResult], Awaitable[None]]] = None
+        self._recording_callback: Optional[Callable[[RecordingSessionResult], Awaitable[None]]] = None
         
         # Register config change callback
         self.config.set_on_schedule_change(self._on_schedule_change)
 
     def set_recording_callback(
         self,
-        callback: Callable[[RecordingResult], Awaitable[None]],
+        callback: Callable[[RecordingSessionResult], Awaitable[None]],
     ) -> None:
         """
         Set a callback to be called after each scheduled recording.
         
         Args:
-            callback: Async function to call with RecordingResult
+            callback: Async function to call with RecordingSessionResult
         """
         self._recording_callback = callback
 
@@ -173,14 +173,26 @@ class RecordingScheduler:
         # Perform the recording
         result = await recorder.record(duration=schedule.duration)
         
-        if result.success:
-            # Upload the recording
-            upload_result = await uploader.upload(result.filepath)
-            
-            if not upload_result.success:
-                logger.error(f"Upload failed for scheduled recording: {schedule.id}")
+        if result.segments:
+            for segment in result.segments:
+                if not segment.success:
+                    logger.error(
+                        f"Recording segment failed for schedule {schedule.id}: "
+                        f"{segment.filename}"
+                    )
+                    continue
+
+                upload_result = await uploader.upload(segment.filepath)
+                if not upload_result.success:
+                    logger.error(
+                        f"Upload failed for scheduled recording: {schedule.id} "
+                        f"({segment.filename})"
+                    )
         else:
-            logger.error(f"Scheduled recording failed: {schedule.id}")
+            logger.error(f"No recording segments saved: {schedule.id}")
+
+        if not result.success:
+            logger.error(f"Scheduled recording incomplete: {schedule.id}")
         
         # Call the callback if set
         if self._recording_callback:

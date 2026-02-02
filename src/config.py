@@ -55,6 +55,8 @@ class DynamicConfig:
     cleanup_enabled: bool = True
     notifications_enabled: bool = True
     test_duration: int = 15  # seconds
+    retry_delay_seconds: int = 10
+    retry_max_seconds: int = 600
 
     def to_dict(self) -> dict:
         """Convert config to dictionary for JSON serialization."""
@@ -63,6 +65,8 @@ class DynamicConfig:
             "cleanup_enabled": self.cleanup_enabled,
             "notifications_enabled": self.notifications_enabled,
             "test_duration": self.test_duration,
+            "retry_delay_seconds": self.retry_delay_seconds,
+            "retry_max_seconds": self.retry_max_seconds,
         }
 
     @classmethod
@@ -74,6 +78,8 @@ class DynamicConfig:
             cleanup_enabled=data.get("cleanup_enabled", True),
             notifications_enabled=data.get("notifications_enabled", True),
             test_duration=data.get("test_duration", 15),
+            retry_delay_seconds=data.get("retry_delay_seconds", 10),
+            retry_max_seconds=data.get("retry_max_seconds", 600),
         )
 
 
@@ -316,7 +322,9 @@ Schedules:
 Settings:
   - Cleanup after upload: {'✅' if self.dynamic.cleanup_enabled else '❌'}
   - Notifications: {'✅' if self.dynamic.notifications_enabled else '❌'}
-  - Test duration: {self.dynamic.test_duration}s"""
+  - Test duration: {self.dynamic.test_duration}s
+  - Retry delay: {self.dynamic.retry_delay_seconds}s
+  - Retry window: {self.dynamic.retry_max_seconds}s"""
 
 
 # Global config instance

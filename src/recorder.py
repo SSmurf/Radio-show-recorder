@@ -7,8 +7,8 @@ event emission for notifications.
 """
 
 import asyncio
-import os
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -20,23 +20,44 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class RecordingResult:
+class RecordingSegmentResult:
     """
-    Result of a recording operation.
+    Result of a single recording segment.
     
     Attributes:
-        success: Whether the recording completed successfully
+        success: Whether the segment was saved successfully
         filename: Name of the recorded file
         filepath: Full path to the recorded file
         duration: Actual duration recorded in seconds
         size_bytes: File size in bytes
-        error: Error message if recording failed
+        error: Error message if segment failed
+        partial: Whether the segment ended due to a stream drop
     """
     success: bool
     filename: str
     filepath: Path
     duration: int
     size_bytes: int = 0
+    error: Optional[str] = None
+    partial: bool = False
+
+
+@dataclass
+class RecordingSessionResult:
+    """
+    Result of a recording session that may include multiple segments.
+    
+    Attributes:
+        success: Whether the full requested duration was recorded
+        segments: List of segment results recorded in this session
+        requested_duration: Requested recording duration in seconds
+        recorded_duration: Total duration recorded across segments
+        error: Error message if session failed or was incomplete
+    """
+    success: bool
+    segments: list[RecordingSegmentResult]
+    requested_duration: int
+    recorded_duration: int
     error: Optional[str] = None
 
 
@@ -112,12 +133,33 @@ class Recorder:
             except Exception as e:
                 logger.error(f"Notification callback failed: {e}")
 
+    def _is_retryable_error(self, error_msg: str) -> bool:
+        """
+        Check if an ffmpeg error message indicates a retryable stream drop.
+        """
+        if not error_msg:
+            return False
+        lowered = error_msg.lower()
+        retryable_phrases = [
+            "connection refused",
+            "connection reset",
+            "connection timed out",
+            "network is unreachable",
+            "temporary failure in name resolution",
+            "server returned 404",
+            "http error",
+            "i/o error",
+            "unable to open",
+            "end of file",
+        ]
+        return any(phrase in lowered for phrase in retryable_phrases)
+
     async def record(
         self,
         duration: Optional[int] = None,
         filename: Optional[str] = None,
         is_test: bool = False,
-    ) -> RecordingResult:
+    ) -> RecordingSessionResult:
         """
         Record the radio stream for the specified duration.
         
@@ -130,14 +172,14 @@ class Recorder:
             is_test: Whether this is a test recording (uses test_duration if duration is None)
             
         Returns:
-            RecordingResult with recording details and status
+            RecordingSessionResult with recording details and status
         """
         if self.is_recording:
-            return RecordingResult(
+            return RecordingSessionResult(
                 success=False,
-                filename="",
-                filepath=Path(),
-                duration=0,
+                segments=[],
+                requested_duration=0,
+                recorded_duration=0,
                 error="Recording already in progress",
             )
 
@@ -149,120 +191,197 @@ class Recorder:
                 else self.config.default_duration
             )
 
-        # Generate filename if not provided
-        if filename is None:
-            prefix = "yammat_test" if is_test else "yammat_recording"
-            filename = self._generate_filename(prefix)
-
-        filepath = self.config.recordings_dir / filename
-        
-        # Format duration for display
-        hours, remainder = divmod(duration, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        duration_str = (
-            f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m {seconds}s"
-        )
-
-        logger.info(f"Starting recording: {filename} (duration: {duration_str})")
-        
-        # Notify start
-        await self._notify(
-            self._on_start,
-            f"🎙️ Recording started\n\nFile: `{filename}`\nDuration: {duration_str}",
-        )
-
         self.is_recording = True
-        
-        # Build ffmpeg command
-        command = [
-            "ffmpeg",
-            "-y",  # Overwrite output file
-            "-i", self.config.stream_url,
-            "-t", str(duration),
-            "-c:a", "libmp3lame",
-            "-b:a", "192k",
-            str(filepath),
-        ]
+        session_segments: list[RecordingSegmentResult] = []
+        recorded_duration = 0
+        remaining_duration = duration
+        retry_deadline: Optional[float] = None
+        retry_delay = max(1, int(self.config.dynamic.retry_delay_seconds))
+        retry_max_seconds = max(0, int(self.config.dynamic.retry_max_seconds))
 
         try:
-            # Create subprocess
-            self.current_process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            while remaining_duration > 0:
+                # Generate filename if not provided
+                if filename is None:
+                    prefix = "yammat_test" if is_test else "yammat_recording"
+                    segment_filename = self._generate_filename(prefix)
+                else:
+                    segment_filename = filename
+                    filename = None
+
+                seg_hours, seg_remainder = divmod(remaining_duration, 3600)
+                seg_minutes, seg_seconds = divmod(seg_remainder, 60)
+                segment_duration_str = (
+                    f"{seg_hours}h {seg_minutes}m"
+                    if seg_hours > 0
+                    else f"{seg_minutes}m {seg_seconds}s"
+                )
+
+                filepath = self.config.recordings_dir / segment_filename
+
+                logger.info(
+                    f"Starting recording segment: {segment_filename} "
+                    f"(target: {segment_duration_str})"
+                )
+
+                await self._notify(
+                    self._on_start,
+                    f"🎙️ Recording started\n\nFile: `{segment_filename}`\n"
+                    f"Duration: {segment_duration_str}",
+                )
+
+                # Build ffmpeg command
+                command = [
+                    "ffmpeg",
+                    "-y",  # Overwrite output file
+                    "-i", self.config.stream_url,
+                    "-t", str(remaining_duration),
+                    "-c:a", "libmp3lame",
+                    "-b:a", "192k",
+                    str(filepath),
+                ]
+
+                segment_start = time.monotonic()
+                self.current_process = await asyncio.create_subprocess_exec(
+                    *command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+
+                stdout, stderr = await self.current_process.communicate()
+                elapsed = max(0, int(time.monotonic() - segment_start))
+                error_msg = stderr.decode() if stderr else ""
+
+                if self.current_process.returncode == 0:
+                    size_bytes = filepath.stat().st_size if filepath.exists() else 0
+                    size_mb = size_bytes / (1024 * 1024)
+                    segment_duration = remaining_duration
+
+                    logger.info(
+                        f"Recording completed: {segment_filename} ({size_mb:.1f} MB)"
+                    )
+
+                    await self._notify(
+                        self._on_complete,
+                        f"✅ Recording completed\n\nFile: `{segment_filename}`\n"
+                        f"Size: {size_mb:.1f} MB",
+                    )
+
+                    session_segments.append(
+                        RecordingSegmentResult(
+                            success=True,
+                            filename=segment_filename,
+                            filepath=filepath,
+                            duration=segment_duration,
+                            size_bytes=size_bytes,
+                            partial=False,
+                        )
+                    )
+
+                    recorded_duration += segment_duration
+                    remaining_duration = 0
+                    retry_deadline = None
+                else:
+                    size_bytes = filepath.stat().st_size if filepath.exists() else 0
+                    segment_duration = min(remaining_duration, elapsed)
+                    retryable = self._is_retryable_error(error_msg)
+
+                    if size_bytes > 0:
+                        size_mb = size_bytes / (1024 * 1024)
+                        logger.warning(
+                            f"Recording interrupted: {segment_filename} "
+                            f"({size_mb:.1f} MB)"
+                        )
+
+                        await self._notify(
+                            self._on_complete,
+                            f"⚠️ Recording interrupted\n\nFile: `{segment_filename}`\n"
+                            f"Size: {size_mb:.1f} MB",
+                        )
+
+                        session_segments.append(
+                            RecordingSegmentResult(
+                                success=True,
+                                filename=segment_filename,
+                                filepath=filepath,
+                                duration=segment_duration,
+                                size_bytes=size_bytes,
+                                error=error_msg[:200] if error_msg else None,
+                                partial=True,
+                            )
+                        )
+
+                        recorded_duration += segment_duration
+                        remaining_duration = max(0, remaining_duration - segment_duration)
+
+                    if not retryable:
+                        logger.error(f"Recording failed: {error_msg}")
+                        await self._notify(
+                            self._on_error,
+                            f"❌ Recording failed\n\nFile: `{segment_filename}`\n"
+                            f"Error: {error_msg[:200]}",
+                        )
+                        break
+
+                    if retry_deadline is None:
+                        retry_deadline = time.monotonic() + retry_max_seconds
+
+                    now = time.monotonic()
+                    if retry_max_seconds == 0 or now >= retry_deadline:
+                        logger.error("Retry window exceeded, stopping recording")
+                        await self._notify(
+                            self._on_error,
+                            "❌ Recording stopped\n\nReason: retry window exceeded",
+                        )
+                        break
+
+                    wait_seconds = min(retry_delay, max(1, int(retry_deadline - now)))
+                    logger.warning(
+                        f"Stream dropped, retrying in {wait_seconds}s "
+                        f"(remaining window: {int(retry_deadline - now)}s)"
+                    )
+                    await self._notify(
+                        self._on_error,
+                        f"⚠️ Stream dropped\n\nRetrying in {wait_seconds}s",
+                    )
+                    await asyncio.sleep(wait_seconds)
+
+            success = remaining_duration == 0
+            error = None if success else "Recording incomplete"
+
+            return RecordingSessionResult(
+                success=success,
+                segments=session_segments,
+                requested_duration=duration,
+                recorded_duration=recorded_duration,
+                error=error,
             )
 
-            # Wait for completion
-            stdout, stderr = await self.current_process.communicate()
-
-            if self.current_process.returncode == 0:
-                # Get file size
-                size_bytes = filepath.stat().st_size if filepath.exists() else 0
-                size_mb = size_bytes / (1024 * 1024)
-
-                logger.info(f"Recording completed: {filename} ({size_mb:.1f} MB)")
-                
-                # Notify completion
-                await self._notify(
-                    self._on_complete,
-                    f"✅ Recording completed\n\nFile: `{filename}`\nSize: {size_mb:.1f} MB",
-                )
-
-                return RecordingResult(
-                    success=True,
-                    filename=filename,
-                    filepath=filepath,
-                    duration=duration,
-                    size_bytes=size_bytes,
-                )
-            else:
-                error_msg = stderr.decode() if stderr else "Unknown error"
-                logger.error(f"Recording failed: {error_msg}")
-                
-                # Notify error
-                await self._notify(
-                    self._on_error,
-                    f"❌ Recording failed\n\nFile: `{filename}`\nError: {error_msg[:200]}",
-                )
-
-                return RecordingResult(
-                    success=False,
-                    filename=filename,
-                    filepath=filepath,
-                    duration=duration,
-                    error=error_msg,
-                )
-
         except asyncio.CancelledError:
-            # Recording was cancelled (e.g., shutdown)
             if self.current_process:
                 self.current_process.terminate()
                 await self.current_process.wait()
-            
-            logger.warning(f"Recording cancelled: {filename}")
-            
-            return RecordingResult(
+
+            logger.warning("Recording cancelled")
+            return RecordingSessionResult(
                 success=False,
-                filename=filename,
-                filepath=filepath,
-                duration=duration,
+                segments=session_segments,
+                requested_duration=duration,
+                recorded_duration=recorded_duration,
                 error="Recording cancelled",
             )
 
         except Exception as e:
             logger.exception(f"Recording error: {e}")
-            
-            # Notify error
             await self._notify(
                 self._on_error,
-                f"❌ Recording error\n\nFile: `{filename}`\nError: {str(e)}",
+                f"❌ Recording error\n\nError: {str(e)}",
             )
-
-            return RecordingResult(
+            return RecordingSessionResult(
                 success=False,
-                filename=filename,
-                filepath=filepath,
-                duration=duration,
+                segments=session_segments,
+                requested_duration=duration,
+                recorded_duration=recorded_duration,
                 error=str(e),
             )
 
@@ -270,14 +389,14 @@ class Recorder:
             self.is_recording = False
             self.current_process = None
 
-    async def test_record(self) -> RecordingResult:
+    async def test_record(self) -> RecordingSessionResult:
         """
         Perform a test recording with the configured test duration.
         
         This is a convenience method that calls record() with is_test=True.
         
         Returns:
-            RecordingResult with test recording details
+            RecordingSessionResult with test recording details
         """
         return await self.record(is_test=True)
 
