@@ -12,6 +12,7 @@ import shutil
 from typing import Optional
 
 from telegram import Update, BotCommand
+from telegram.error import InvalidToken, TelegramError
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -469,6 +470,30 @@ class RadioBot:
 
     # ========== Bot Lifecycle ==========
 
+    async def _shutdown_partial_app(self) -> None:
+        """Best-effort cleanup for a Telegram app that did not fully start."""
+        if not self.app:
+            return
+
+        try:
+            if self.app.updater and self.app.updater.running:
+                await self.app.updater.stop()
+        except RuntimeError as e:
+            logger.debug(f"Telegram updater was not running: {e}")
+
+        try:
+            if self.app.running:
+                await self.app.stop()
+        except RuntimeError as e:
+            logger.debug(f"Telegram app was not running: {e}")
+
+        try:
+            await self.app.shutdown()
+        except RuntimeError as e:
+            logger.debug(f"Telegram app was not initialized: {e}")
+
+        self.app = None
+
     async def start(self) -> None:
         """
         Start the Telegram bot.
@@ -513,12 +538,21 @@ class RadioBot:
             BotCommand("help", "Show all commands"),
         ]
         
-        await self.app.bot.set_my_commands(commands)
-        
-        # Initialize and start
-        await self.app.initialize()
-        await self.app.start()
-        await self.app.updater.start_polling(drop_pending_updates=True)
+        try:
+            await self.app.bot.set_my_commands(commands)
+            
+            # Initialize and start
+            await self.app.initialize()
+            await self.app.start()
+            await self.app.updater.start_polling(drop_pending_updates=True)
+        except InvalidToken:
+            logger.error("Telegram bot token is invalid, bot disabled")
+            await self._shutdown_partial_app()
+            return
+        except TelegramError as e:
+            logger.error(f"Telegram bot startup failed, bot disabled: {e}")
+            await self._shutdown_partial_app()
+            return
         
         logger.info("Telegram bot started")
         
@@ -531,18 +565,14 @@ class RadioBot:
         
         This sends a shutdown notification and stops the bot.
         """
-        if self.app:
-            # Send shutdown notification
-            await self.notify("🔴 Radio Recorder stopping...")
-            
-            # Stop the bot
-            await self.app.updater.stop()
-            await self.app.stop()
-            await self.app.shutdown()
-            
-            logger.info("Telegram bot stopped")
-        
-        self.app = None
+        if not self.app:
+            return
+
+        # Send shutdown notification
+        await self.notify("🔴 Radio Recorder stopping...")
+
+        await self._shutdown_partial_app()
+        logger.info("Telegram bot stopped")
 
 
 # Global bot instance

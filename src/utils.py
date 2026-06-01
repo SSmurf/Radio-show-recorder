@@ -102,14 +102,25 @@ def setup_logging(level: int = logging.INFO, log_dir: Optional[Path] = None) -> 
     handler.setFormatter(formatter)
     root_logger.addHandler(handler)
 
-    log_dir = log_dir or Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
-    try:
-        file_handler = DailyFileHandler(log_dir)
-        file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
-        root_logger.info(f"Writing daily logs to {log_dir}")
-    except OSError as e:
-        root_logger.warning(f"File logging disabled; cannot write to {log_dir}: {e}")
+    requested_log_dir = log_dir or Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
+    fallback_log_dir = Path(os.getenv("LOG_FALLBACK_DIR", BASE_DIR / "data" / "logs"))
+
+    for candidate in (requested_log_dir, fallback_log_dir):
+        try:
+            file_handler = DailyFileHandler(candidate)
+            file_handler.setFormatter(formatter)
+            root_logger.addHandler(file_handler)
+            if candidate != requested_log_dir:
+                root_logger.warning(
+                    f"Using fallback log directory {candidate}; "
+                    f"cannot write to {requested_log_dir}"
+                )
+            root_logger.info(f"Writing daily logs to {candidate}")
+            break
+        except OSError as e:
+            root_logger.warning(f"Cannot write logs to {candidate}: {e}")
+    else:
+        root_logger.warning("File logging disabled; no writable log directory found")
     
     # Reduce noise from third-party libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)

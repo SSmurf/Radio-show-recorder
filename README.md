@@ -75,6 +75,7 @@ docker-compose down
 | `RECORDING_GRACE_SECONDS` | No | `600` | Extra seconds before force-stopping a stuck recording |
 | `DEFAULT_SCHEDULE` | No | `friday:20:55:28800` | Default schedule |
 | `LOG_DIR` | No | `/app/logs` in Docker, `./logs` locally | Directory for daily log files |
+| `LOG_FALLBACK_DIR` | No | `/app/data/logs` in Docker, `./data/logs` locally | Used if `LOG_DIR` is not writable |
 | `LOG_BACKUP_REMOTE` | No | `PCLOUD_REMOTE/logs` | pCloud directory for daily log backups |
 | `LOG_BACKUP_TIME` | No | `00:10` | Daily log backup time in configured timezone |
 

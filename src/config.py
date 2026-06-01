@@ -120,7 +120,10 @@ class Config:
         self.recording_grace_seconds: int = int(
             os.getenv("RECORDING_GRACE_SECONDS", "600")
         )
-        self.log_dir: Path = Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
+        DATA_DIR.mkdir(exist_ok=True)
+        self.log_dir: Path = self._resolve_log_dir(
+            Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
+        )
         self.log_backup_remote: str = os.getenv(
             "LOG_BACKUP_REMOTE",
             f"{self.pcloud_remote}/logs",
@@ -132,9 +135,6 @@ class Config:
         self.recordings_dir.mkdir(exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         
-        # Ensure data directory exists
-        DATA_DIR.mkdir(exist_ok=True)
-        
         # Load dynamic settings
         self.dynamic = self._load_dynamic_config()
         
@@ -142,6 +142,26 @@ class Config:
         self._on_schedule_change: Optional[Callable] = None
         
         logger.info("Configuration loaded successfully")
+
+    def _resolve_log_dir(self, requested_dir: Path) -> Path:
+        """Return a writable log directory, falling back under data if needed."""
+        fallback_dir = Path(os.getenv("LOG_FALLBACK_DIR", DATA_DIR / "logs"))
+        for candidate in (requested_dir, fallback_dir):
+            try:
+                candidate.mkdir(parents=True, exist_ok=True)
+                probe = candidate / ".write_test"
+                probe.write_text("", encoding="utf-8")
+                probe.unlink()
+                if candidate != requested_dir:
+                    logger.warning(
+                        f"Using fallback log directory {candidate}; "
+                        f"cannot write to {requested_dir}"
+                    )
+                return candidate
+            except OSError as e:
+                logger.warning(f"Cannot write logs to {candidate}: {e}")
+
+        return requested_dir
 
     def _load_dynamic_config(self) -> DynamicConfig:
         """
