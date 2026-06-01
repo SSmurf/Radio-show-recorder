@@ -148,6 +148,7 @@ class RadioBot:
 /status - Show recorder status
 /next - Show upcoming recordings
 /test - Run a test recording
+/stop - Stop active recording
 
 *Schedule Commands:*
 /schedule list - Show all schedules
@@ -228,6 +229,31 @@ class RadioBot:
         
         # Run test recording in background
         asyncio.create_task(self._run_test_recording())
+
+    async def cmd_stop_recording(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        """Handle /stop command - stop any active recording."""
+        if not await self._check_auth(update):
+            return
+
+        recorder = get_recorder()
+
+        if not recorder.is_recording:
+            await update.message.reply_text("No active recording to stop.")
+            return
+
+        await update.message.reply_text("Stopping active recording...")
+
+        stopped = await recorder.stop()
+        if stopped:
+            await update.message.reply_text("✅ Active recording stopped.")
+        else:
+            await update.message.reply_text(
+                "⚠️ A recording is active, but no recorder process could be stopped."
+            )
 
     async def _run_test_recording(self) -> None:
         """Run a test recording and upload."""
@@ -464,6 +490,8 @@ class RadioBot:
             CommandHandler("status", self.cmd_status),
             CommandHandler("next", self.cmd_next),
             CommandHandler("test", self.cmd_test),
+            CommandHandler("stop", self.cmd_stop_recording),
+            CommandHandler("stoprecording", self.cmd_stop_recording),
             CommandHandler("schedule", self.cmd_schedule),
             CommandHandler("cleanup", self.cmd_cleanup),
             CommandHandler("notify", self.cmd_notify),
@@ -479,6 +507,7 @@ class RadioBot:
             BotCommand("status", "Show recorder status"),
             BotCommand("next", "Show upcoming recordings"),
             BotCommand("test", "Run test recording"),
+            BotCommand("stop", "Stop active recording"),
             BotCommand("schedule", "Manage schedules"),
             BotCommand("config", "Show configuration"),
             BotCommand("help", "Show all commands"),

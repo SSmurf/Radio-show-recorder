@@ -93,6 +93,7 @@ These settings can be changed at runtime and persist across restarts:
 | `/status` | Show recorder status and disk space |
 | `/next` | Show upcoming scheduled recordings |
 | `/test` | Run a test recording |
+| `/stop` | Stop the active recording |
 
 ### Schedule Commands
 

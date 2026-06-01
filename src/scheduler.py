@@ -172,6 +172,15 @@ class RecordingScheduler:
         
         # Perform the recording
         result = await recorder.record(duration=schedule.duration)
+
+        if result.error == "Recording stopped by user":
+            logger.info(f"Scheduled recording stopped by user: {schedule.id}")
+            if self._recording_callback:
+                try:
+                    await self._recording_callback(result)
+                except Exception as e:
+                    logger.error(f"Recording callback failed: {e}")
+            return
         
         if result.segments:
             for segment in result.segments:

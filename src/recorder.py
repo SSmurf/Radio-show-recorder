@@ -84,6 +84,7 @@ class Recorder:
         self.config = get_config()
         self.is_recording: bool = False
         self.current_process: Optional[asyncio.subprocess.Process] = None
+        self._stop_requested: bool = False
         self._on_start: Optional[NotifyCallback] = None
         self._on_complete: Optional[NotifyCallback] = None
         self._on_error: Optional[NotifyCallback] = None
@@ -192,6 +193,7 @@ class Recorder:
             )
 
         self.is_recording = True
+        self._stop_requested = False
         session_segments: list[RecordingSegmentResult] = []
         recorded_duration = 0
         remaining_duration = duration
@@ -251,6 +253,32 @@ class Recorder:
                 stdout, stderr = await self.current_process.communicate()
                 elapsed = max(0, int(time.monotonic() - segment_start))
                 error_msg = stderr.decode() if stderr else ""
+
+                if self._stop_requested:
+                    size_bytes = filepath.stat().st_size if filepath.exists() else 0
+                    segment_duration = min(remaining_duration, elapsed)
+                    if size_bytes > 0:
+                        session_segments.append(
+                            RecordingSegmentResult(
+                                success=True,
+                                filename=segment_filename,
+                                filepath=filepath,
+                                duration=segment_duration,
+                                size_bytes=size_bytes,
+                                error="Recording stopped by user",
+                                partial=True,
+                            )
+                        )
+                        recorded_duration += segment_duration
+
+                    logger.info(f"Recording stopped by user: {segment_filename}")
+                    return RecordingSessionResult(
+                        success=False,
+                        segments=session_segments,
+                        requested_duration=duration,
+                        recorded_duration=recorded_duration,
+                        error="Recording stopped by user",
+                    )
 
                 if self.current_process.returncode == 0:
                     size_bytes = filepath.stat().st_size if filepath.exists() else 0
@@ -394,6 +422,7 @@ class Recorder:
         finally:
             self.is_recording = False
             self.current_process = None
+            self._stop_requested = False
 
     async def test_record(self) -> RecordingSessionResult:
         """
@@ -427,6 +456,7 @@ class Recorder:
             True if a recording was stopped, False otherwise
         """
         if self.current_process and self.is_recording:
+            self._stop_requested = True
             self.current_process.terminate()
             try:
                 await asyncio.wait_for(self.current_process.wait(), timeout=5.0)
