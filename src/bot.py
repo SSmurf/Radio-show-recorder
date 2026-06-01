@@ -236,8 +236,9 @@ class RadioBot:
         
         result = await recorder.test_record()
         
-        if result.success:
-            await uploader.upload(result.filepath)
+        if result.success and result.segments:
+            for segment in result.segments:
+                await uploader.upload(segment.filepath)
 
     # ========== Schedule Commands ==========
 

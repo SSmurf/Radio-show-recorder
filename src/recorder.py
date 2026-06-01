@@ -255,7 +255,7 @@ class Recorder:
                 if self.current_process.returncode == 0:
                     size_bytes = filepath.stat().st_size if filepath.exists() else 0
                     size_mb = size_bytes / (1024 * 1024)
-                    segment_duration = remaining_duration
+                    segment_duration = elapsed
 
                     logger.info(
                         f"Recording completed: {segment_filename} ({size_mb:.1f} MB)"
@@ -313,6 +313,12 @@ class Recorder:
 
                         recorded_duration += segment_duration
                         remaining_duration = max(0, remaining_duration - segment_duration)
+
+                    if size_bytes == 0:
+                        remaining_duration = max(0, remaining_duration - elapsed)
+                        if remaining_duration == 0:
+                            logger.error("No data recorded, stopping")
+                            break
 
                     if not retryable:
                         logger.error(f"Recording failed: {error_msg}")
