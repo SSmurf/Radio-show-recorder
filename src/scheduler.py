@@ -17,7 +17,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.job import Job
 
 from .config import get_config, Schedule
-from .recorder import get_recorder, RecordingSessionResult
+from .recorder import RECORDING_STOPPED_ERROR, get_recorder, RecordingSessionResult
 from .uploader import get_uploader
 
 logger = logging.getLogger(__name__)
@@ -173,7 +173,7 @@ class RecordingScheduler:
         # Perform the recording
         result = await recorder.record(duration=schedule.duration)
 
-        if result.error == "Recording stopped by user":
+        if result.error == RECORDING_STOPPED_ERROR:
             logger.info(f"Scheduled recording stopped by user: {schedule.id}")
             if self._recording_callback:
                 try:

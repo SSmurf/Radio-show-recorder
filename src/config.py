@@ -117,6 +117,9 @@ class Config:
         self.timezone: str = os.getenv("TZ", "Europe/Zagreb")
         self.default_duration: int = int(os.getenv("DEFAULT_DURATION", "28800"))
         self.default_schedule: str = os.getenv("DEFAULT_SCHEDULE", "friday:20:55:28800")
+        self.recording_grace_seconds: int = int(
+            os.getenv("RECORDING_GRACE_SECONDS", "600")
+        )
         
         # Recording output directory
         self.recordings_dir: Path = BASE_DIR / "recordings"
@@ -323,6 +326,7 @@ Settings:
   - Cleanup after upload: {'✅' if self.dynamic.cleanup_enabled else '❌'}
   - Notifications: {'✅' if self.dynamic.notifications_enabled else '❌'}
   - Test duration: {self.dynamic.test_duration}s
+  - Recording grace: {self.recording_grace_seconds}s
   - Retry delay: {self.dynamic.retry_delay_seconds}s
   - Retry window: {self.dynamic.retry_max_seconds}s"""
 

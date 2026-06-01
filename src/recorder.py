@@ -64,6 +64,10 @@ class RecordingSessionResult:
 # Type alias for notification callbacks
 NotifyCallback = Callable[[str], Awaitable[None]]
 
+RECORDING_TIMEOUT_ERROR = "Recording timed out"
+RECORDING_STOPPED_ERROR = "Recording stopped by user"
+FFMPEG_SHUTDOWN_TIMEOUT = 5.0
+
 
 class Recorder:
     """
@@ -155,6 +159,26 @@ class Recorder:
         ]
         return any(phrase in lowered for phrase in retryable_phrases)
 
+    async def _finish_current_process(
+        self,
+        communicate_task: asyncio.Task,
+    ) -> tuple[bytes, bytes]:
+        """
+        Stop ffmpeg and wait briefly for buffered output before killing it.
+        """
+        if self.current_process and self.current_process.returncode is None:
+            self.current_process.terminate()
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.shield(communicate_task),
+                timeout=FFMPEG_SHUTDOWN_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            if self.current_process and self.current_process.returncode is None:
+                self.current_process.kill()
+            return await communicate_task
+
     async def record(
         self,
         duration: Optional[int] = None,
@@ -236,6 +260,10 @@ class Recorder:
                 command = [
                     "ffmpeg",
                     "-y",  # Overwrite output file
+                    "-rw_timeout", "15000000",  # Network read timeout in microseconds
+                    "-reconnect", "1",
+                    "-reconnect_streamed", "1",
+                    "-reconnect_delay_max", "30",
                     "-i", self.config.stream_url,
                     "-t", str(remaining_duration),
                     "-c:a", "libmp3lame",
@@ -250,7 +278,25 @@ class Recorder:
                     stderr=asyncio.subprocess.PIPE,
                 )
 
-                stdout, stderr = await self.current_process.communicate()
+                timeout_seconds = remaining_duration + max(
+                    0,
+                    int(self.config.recording_grace_seconds),
+                )
+                communicate_task = asyncio.create_task(
+                    self.current_process.communicate()
+                )
+                timed_out = False
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        asyncio.shield(communicate_task),
+                        timeout=timeout_seconds,
+                    )
+                except asyncio.TimeoutError:
+                    timed_out = True
+                    stdout, stderr = await self._finish_current_process(
+                        communicate_task
+                    )
+
                 elapsed = max(0, int(time.monotonic() - segment_start))
                 error_msg = stderr.decode() if stderr else ""
 
@@ -265,7 +311,7 @@ class Recorder:
                                 filepath=filepath,
                                 duration=segment_duration,
                                 size_bytes=size_bytes,
-                                error="Recording stopped by user",
+                                error=RECORDING_STOPPED_ERROR,
                                 partial=True,
                             )
                         )
@@ -277,7 +323,50 @@ class Recorder:
                         segments=session_segments,
                         requested_duration=duration,
                         recorded_duration=recorded_duration,
-                        error="Recording stopped by user",
+                        error=RECORDING_STOPPED_ERROR,
+                    )
+
+                if timed_out:
+                    size_bytes = filepath.stat().st_size if filepath.exists() else 0
+                    size_mb = size_bytes / (1024 * 1024)
+                    segment_duration = min(remaining_duration, elapsed)
+
+                    logger.error(
+                        f"Recording timed out: {segment_filename} "
+                        f"(elapsed: {elapsed}s, timeout: {timeout_seconds}s, "
+                        f"size: {size_mb:.1f} MB)"
+                    )
+                    if error_msg:
+                        logger.error(f"ffmpeg stderr after timeout:\n{error_msg}")
+
+                    if size_bytes > 0:
+                        session_segments.append(
+                            RecordingSegmentResult(
+                                success=True,
+                                filename=segment_filename,
+                                filepath=filepath,
+                                duration=segment_duration,
+                                size_bytes=size_bytes,
+                                error=RECORDING_TIMEOUT_ERROR,
+                                partial=True,
+                            )
+                        )
+                        recorded_duration += segment_duration
+
+                    await self._notify(
+                        self._on_error,
+                        f"⚠️ Recording force-stopped\n\nFile: `{segment_filename}`\n"
+                        f"Elapsed: {elapsed}s\n"
+                        f"Size: {size_mb:.1f} MB\n"
+                        "Reason: watchdog timeout",
+                    )
+
+                    return RecordingSessionResult(
+                        success=False,
+                        segments=session_segments,
+                        requested_duration=duration,
+                        recorded_duration=recorded_duration,
+                        error=RECORDING_TIMEOUT_ERROR,
                     )
 
                 if self.current_process.returncode == 0:
@@ -313,6 +402,8 @@ class Recorder:
                     size_bytes = filepath.stat().st_size if filepath.exists() else 0
                     segment_duration = min(remaining_duration, elapsed)
                     retryable = self._is_retryable_error(error_msg)
+                    if error_msg:
+                        logger.error(f"ffmpeg stderr:\n{error_msg}")
 
                     if size_bytes > 0:
                         size_mb = size_bytes / (1024 * 1024)
@@ -459,9 +550,13 @@ class Recorder:
             self._stop_requested = True
             self.current_process.terminate()
             try:
-                await asyncio.wait_for(self.current_process.wait(), timeout=5.0)
+                await asyncio.wait_for(
+                    self.current_process.wait(),
+                    timeout=FFMPEG_SHUTDOWN_TIMEOUT,
+                )
             except asyncio.TimeoutError:
                 self.current_process.kill()
+                await self.current_process.wait()
             
             logger.info("Recording stopped by user")
             return True

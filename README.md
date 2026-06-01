@@ -72,6 +72,7 @@ docker-compose down
 | `PCLOUD_REMOTE` | No | `pcloud:Radio recordings` | rclone remote path |
 | `TZ` | No | `Europe/Zagreb` | Timezone |
 | `DEFAULT_DURATION` | No | `28800` (8h) | Default recording duration |
+| `RECORDING_GRACE_SECONDS` | No | `600` | Extra seconds before force-stopping a stuck recording |
 | `DEFAULT_SCHEDULE` | No | `friday:20:55:28800` | Default schedule |
 | `LOG_DIR` | No | `/app/logs` in Docker, `./logs` locally | Directory for daily log files |
 
