@@ -6,24 +6,83 @@ disk space monitoring, and other helper functions used across the application.
 """
 
 import logging
+import os
 import shutil
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Optional
 
-from .config import get_config
+from .config import BASE_DIR, get_config
 
 
-def setup_logging(level: int = logging.INFO) -> None:
+class DailyFileHandler(logging.Handler):
+    """
+    Write logs to one file per local calendar day.
+
+    Files are named YYYY-MM-DD.log so they are easy to browse and archive.
+    The handler checks the date on every log write and switches files after
+    midnight without requiring an application restart.
+    """
+
+    def __init__(
+        self,
+        log_dir: Path,
+        level: int = logging.NOTSET,
+        encoding: str = "utf-8",
+    ):
+        super().__init__(level)
+        self.log_dir = log_dir
+        self.encoding = encoding
+        self._current_date: Optional[date] = None
+        self._stream = None
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self._open_for_today()
+
+    def _open_for_today(self) -> None:
+        today = date.today()
+        if self._current_date == today and self._stream:
+            return
+
+        if self._stream:
+            self._stream.close()
+
+        self._current_date = today
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = self.log_dir / f"{today.isoformat()}.log"
+        self._stream = open(log_path, "a", encoding=self.encoding)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self._open_for_today()
+            self._stream.write(self.format(record) + self.terminator)
+            self._stream.flush()
+        except Exception:
+            self.handleError(record)
+
+    def close(self) -> None:
+        try:
+            if self._stream:
+                self._stream.close()
+                self._stream = None
+        finally:
+            super().close()
+
+    @property
+    def terminator(self) -> str:
+        return "\n"
+
+
+def setup_logging(level: int = logging.INFO, log_dir: Optional[Path] = None) -> None:
     """
     Configure logging for the application.
     
-    Sets up formatted logging to stdout with timestamps and module names.
+    Sets up formatted logging to stdout and daily log files.
     
     Args:
         level: Logging level (default: INFO)
+        log_dir: Directory for daily log files. Defaults to LOG_DIR or ./logs.
     """
-    # Create formatter
     formatter = logging.Formatter(
         fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -36,17 +95,28 @@ def setup_logging(level: int = logging.INFO) -> None:
     # Remove existing handlers
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
+        handler.close()
     
     # Add stdout handler
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
     root_logger.addHandler(handler)
+
+    log_dir = log_dir or Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
+    try:
+        file_handler = DailyFileHandler(log_dir)
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+        root_logger.info(f"Writing daily logs to {log_dir}")
+    except OSError as e:
+        root_logger.warning(f"File logging disabled; cannot write to {log_dir}: {e}")
     
     # Reduce noise from third-party libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("telegram").setLevel(logging.WARNING)
     logging.getLogger("apscheduler").setLevel(logging.WARNING)
+    logging.captureWarnings(True)
 
 
 def get_disk_usage(path: Optional[Path] = None) -> dict:

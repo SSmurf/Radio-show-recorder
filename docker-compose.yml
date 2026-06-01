@@ -21,6 +21,9 @@ services:
       
       # Persist user configuration (schedules, settings)
       - ./data:/app/data
+
+      # Persist application logs, grouped by day
+      - ./logs:/app/logs
       
       # Mount rclone configuration (read-only)
       - ${RCLONE_CONFIG_PATH:-~/.config/rclone/rclone.conf}:/home/recorder/.config/rclone/rclone.conf:ro

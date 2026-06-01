@@ -45,6 +45,7 @@ recordings/
 data/user_config.json
 
 # Logs
+logs/
 *.log
 radio_log.txt
 

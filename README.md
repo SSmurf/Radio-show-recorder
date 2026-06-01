@@ -73,6 +73,7 @@ docker-compose down
 | `TZ` | No | `Europe/Zagreb` | Timezone |
 | `DEFAULT_DURATION` | No | `28800` (8h) | Default recording duration |
 | `DEFAULT_SCHEDULE` | No | `friday:20:55:28800` | Default schedule |
+| `LOG_DIR` | No | `/app/logs` in Docker, `./logs` locally | Directory for daily log files |
 
 ### Dynamic Settings (via Telegram)
 
@@ -132,6 +133,7 @@ Radio-show-recorder/
 │   └── utils.py         # Utility functions
 ├── data/
 │   └── user_config.json # Dynamic settings (auto-generated)
+├── logs/                # Daily application logs
 ├── recordings/          # Temporary local storage
 ├── Dockerfile
 ├── docker-compose.yml
@@ -178,6 +180,10 @@ docker-compose logs -f
 
 # Last 100 lines
 docker-compose logs --tail=100
+
+# Daily application log files
+ls logs/
+tail -f logs/$(date +%F).log
 ```
 
 ## Development

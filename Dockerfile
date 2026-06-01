@@ -37,7 +37,7 @@ WORKDIR /app
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash recorder \
-    && mkdir -p /app/recordings /app/data \
+    && mkdir -p /app/recordings /app/data /app/logs \
     && chown -R recorder:recorder /app
 
 # Copy application code
