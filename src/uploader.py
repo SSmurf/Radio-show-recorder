@@ -7,7 +7,6 @@ successful upload.
 """
 
 import asyncio
-import os
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -115,17 +114,27 @@ class Uploader:
             stderr.decode() if stderr else "",
         )
 
-    async def verify_remote(self, filename: str) -> bool:
+    def _build_remote_path(self, remote_dir: str, filename: str) -> str:
+        """Build a remote file path from an rclone remote directory and filename."""
+        return f"{remote_dir.rstrip('/')}/{filename}"
+
+    async def verify_remote(
+        self,
+        filename: str,
+        remote_dir: Optional[str] = None,
+    ) -> bool:
         """
         Verify that a file exists on the remote storage.
         
         Args:
             filename: Name of the file to verify
+            remote_dir: Remote directory to check. Defaults to configured recording remote.
             
         Returns:
             True if file exists on remote, False otherwise
         """
-        remote_path = f"{self.config.pcloud_remote}/{filename}"
+        remote_dir = remote_dir or self.config.pcloud_remote
+        remote_path = self._build_remote_path(remote_dir, filename)
         
         returncode, stdout, stderr = await self._run_rclone(
             "ls", remote_path
@@ -142,6 +151,8 @@ class Uploader:
         self,
         filepath: Path,
         delete_after: Optional[bool] = None,
+        remote_dir: Optional[str] = None,
+        notify: bool = True,
     ) -> UploadResult:
         """
         Upload a file to pCloud via rclone.
@@ -153,6 +164,8 @@ class Uploader:
             filepath: Path to the local file to upload
             delete_after: Whether to delete local file after upload.
                          If None, uses config.dynamic.cleanup_enabled.
+            remote_dir: Remote directory to upload into. Defaults to configured recording remote.
+            notify: Whether to send upload notifications.
             
         Returns:
             UploadResult with upload details and status
@@ -166,7 +179,8 @@ class Uploader:
             )
 
         filename = filepath.name
-        remote_path = f"{self.config.pcloud_remote}/{filename}"
+        remote_dir = remote_dir or self.config.pcloud_remote
+        remote_path = self._build_remote_path(remote_dir, filename)
         
         # Get file size for logging
         size_bytes = filepath.stat().st_size
@@ -179,7 +193,7 @@ class Uploader:
             returncode, stdout, stderr = await self._run_rclone(
                 "copy",
                 str(filepath),
-                self.config.pcloud_remote,
+                remote_dir,
                 "--progress",
             )
 
@@ -187,10 +201,11 @@ class Uploader:
                 error_msg = stderr or "Upload failed with unknown error"
                 logger.error(f"Upload failed: {error_msg}")
                 
-                await self._notify(
-                    self._on_error,
-                    f"❌ Upload failed\n\nFile: `{filename}`\nError: {error_msg[:200]}",
-                )
+                if notify:
+                    await self._notify(
+                        self._on_error,
+                        f"❌ Upload failed\n\nFile: `{filename}`\nError: {error_msg[:200]}",
+                    )
 
                 return UploadResult(
                     success=False,
@@ -202,7 +217,7 @@ class Uploader:
             logger.info(f"Upload completed: {filename}")
 
             # Verify the upload
-            verified = await self.verify_remote(filename)
+            verified = await self.verify_remote(filename, remote_dir=remote_dir)
 
             # Determine if we should delete local file
             should_delete = (
@@ -233,7 +248,8 @@ class Uploader:
             if local_deleted:
                 status_parts.append("Local file: 🗑️ Deleted")
 
-            await self._notify(self._on_complete, "\n".join(status_parts))
+            if notify:
+                await self._notify(self._on_complete, "\n".join(status_parts))
 
             return UploadResult(
                 success=True,
@@ -246,10 +262,11 @@ class Uploader:
         except Exception as e:
             logger.exception(f"Upload error: {e}")
             
-            await self._notify(
-                self._on_error,
-                f"❌ Upload error\n\nFile: `{filename}`\nError: {str(e)}",
-            )
+            if notify:
+                await self._notify(
+                    self._on_error,
+                    f"❌ Upload error\n\nFile: `{filename}`\nError: {str(e)}",
+                )
 
             return UploadResult(
                 success=False,

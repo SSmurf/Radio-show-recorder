@@ -75,6 +75,8 @@ docker-compose down
 | `RECORDING_GRACE_SECONDS` | No | `600` | Extra seconds before force-stopping a stuck recording |
 | `DEFAULT_SCHEDULE` | No | `friday:20:55:28800` | Default schedule |
 | `LOG_DIR` | No | `/app/logs` in Docker, `./logs` locally | Directory for daily log files |
+| `LOG_BACKUP_REMOTE` | No | `PCLOUD_REMOTE/logs` | pCloud directory for daily log backups |
+| `LOG_BACKUP_TIME` | No | `00:10` | Daily log backup time in configured timezone |
 
 ### Dynamic Settings (via Telegram)
 
@@ -187,6 +189,9 @@ docker-compose logs --tail=100
 ls logs/
 tail -f logs/$(date +%F).log
 ```
+
+Daily logs older than today are backed up to pCloud at `LOG_BACKUP_TIME`.
+After each log file is uploaded and verified remotely, the local copy is deleted.
 
 ## Development
 

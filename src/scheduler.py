@@ -8,7 +8,7 @@ and automatically reloads when the configuration changes.
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, Callable, Awaitable
 from zoneinfo import ZoneInfo
 
@@ -106,6 +106,39 @@ class RecordingScheduler:
             if schedule.enabled:
                 self._add_job(schedule)
 
+    def _add_log_backup_job(self) -> None:
+        """Add the daily log backup job."""
+        if not self.scheduler:
+            return
+
+        try:
+            hour_str, minute_str = self.config.log_backup_time.split(":", maxsplit=1)
+            hour = int(hour_str)
+            minute = int(minute_str)
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                raise ValueError()
+
+            trigger = CronTrigger(
+                hour=hour,
+                minute=minute,
+                timezone=ZoneInfo(self.config.timezone),
+            )
+            self.scheduler.add_job(
+                self._backup_logs,
+                trigger=trigger,
+                id="log_backup_daily",
+                replace_existing=True,
+            )
+            logger.info(
+                f"Added daily log backup at {hour:02d}:{minute:02d} "
+                f"to {self.config.log_backup_remote}"
+            )
+        except ValueError:
+            logger.error(
+                f"Invalid LOG_BACKUP_TIME '{self.config.log_backup_time}', "
+                "daily log backup disabled"
+            )
+
     def _add_job(self, schedule: Schedule) -> Optional[Job]:
         """
         Add a single recording job to the scheduler.
@@ -154,6 +187,68 @@ class RecordingScheduler:
         except Exception as e:
             logger.error(f"Failed to add schedule {schedule.id}: {e}")
             return None
+
+    def _log_files_to_backup(self) -> list:
+        """
+        Get completed daily log files eligible for backup.
+
+        Today's log is still open, so only older YYYY-MM-DD.log files are backed up.
+        """
+        today = datetime.now(ZoneInfo(self.config.timezone)).date()
+        log_files = []
+
+        if not self.config.log_dir.exists():
+            return []
+
+        for filepath in self.config.log_dir.glob("*.log"):
+            try:
+                log_date = date.fromisoformat(filepath.stem)
+            except ValueError:
+                logger.debug(f"Skipping non-daily log file: {filepath}")
+                continue
+
+            if log_date < today:
+                log_files.append(filepath)
+
+        return sorted(log_files)
+
+    async def _backup_logs(self) -> None:
+        """Upload completed daily logs to pCloud and delete local copies after verification."""
+        uploader = get_uploader()
+        log_files = self._log_files_to_backup()
+
+        if not log_files:
+            logger.info("No completed daily logs to back up")
+            return
+
+        logger.info(
+            f"Backing up {len(log_files)} daily log file(s) to "
+            f"{self.config.log_backup_remote}"
+        )
+
+        uploaded = 0
+        deleted = 0
+        failed = 0
+
+        for filepath in log_files:
+            result = await uploader.upload(
+                filepath,
+                delete_after=True,
+                remote_dir=self.config.log_backup_remote,
+                notify=False,
+            )
+            if result.success and result.verified:
+                uploaded += 1
+            else:
+                failed += 1
+
+            if result.local_deleted:
+                deleted += 1
+
+        logger.info(
+            f"Log backup complete: uploaded={uploaded}, "
+            f"deleted={deleted}, failed={failed}"
+        )
 
     async def _run_scheduled_recording(self, schedule: Schedule) -> None:
         """
@@ -227,10 +322,12 @@ class RecordingScheduler:
         
         # Add jobs from configuration
         self._add_jobs_from_config()
+        self._add_log_backup_job()
         
         # Start the scheduler
         self.scheduler.start()
         logger.info(f"Scheduler started (timezone: {self.config.timezone})")
+        asyncio.create_task(self._backup_logs())
 
     async def stop(self) -> None:
         """

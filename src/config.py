@@ -120,10 +120,17 @@ class Config:
         self.recording_grace_seconds: int = int(
             os.getenv("RECORDING_GRACE_SECONDS", "600")
         )
+        self.log_dir: Path = Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
+        self.log_backup_remote: str = os.getenv(
+            "LOG_BACKUP_REMOTE",
+            f"{self.pcloud_remote}/logs",
+        )
+        self.log_backup_time: str = os.getenv("LOG_BACKUP_TIME", "00:10")
         
         # Recording output directory
         self.recordings_dir: Path = BASE_DIR / "recordings"
         self.recordings_dir.mkdir(exist_ok=True)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
         
         # Ensure data directory exists
         DATA_DIR.mkdir(exist_ok=True)
@@ -327,6 +334,7 @@ Settings:
   - Notifications: {'✅' if self.dynamic.notifications_enabled else '❌'}
   - Test duration: {self.dynamic.test_duration}s
   - Recording grace: {self.recording_grace_seconds}s
+  - Log backup: {self.log_backup_time} to {self.log_backup_remote}
   - Retry delay: {self.dynamic.retry_delay_seconds}s
   - Retry window: {self.dynamic.retry_max_seconds}s"""
 
